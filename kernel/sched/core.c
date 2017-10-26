@@ -1758,7 +1758,15 @@ min_max_possible_capacity = 1024; /* min(rq->max_possible_capacity) */
 __read_mostly unsigned int sched_ravg_window = 10000000;
 
 /* Min window size (in ns) = 10ms */
+#ifdef CONFIG_HZ_300
+/*
+ * Tick interval becomes to 3333333 due to
+ * rounding error when HZ=300.
+ */
+#define MIN_SCHED_RAVG_WINDOW (3333333 * 6)
+#else
 #define MIN_SCHED_RAVG_WINDOW 10000000
+#endif
 
 /* Max window size (in ns) = 1s */
 #define MAX_SCHED_RAVG_WINDOW 1000000000
@@ -1766,13 +1774,7 @@ __read_mostly unsigned int sched_ravg_window = 10000000;
 /* Temporarily disable window-stats activity on all cpus */
 unsigned int __read_mostly sched_disable_window_stats;
 
-/*
- * Major task runtime. If a task runs for more than sched_major_task_runtime
- * in a window, it's considered to be generating majority of workload
- * for this window. Prediction could be adjusted for such tasks.
- */
 #ifdef CONFIG_SCHED_FREQ_INPUT
-__read_mostly unsigned int sched_major_task_runtime = 10000000;
 
 /*
  * Demand aggregation for frequency purpose:
@@ -2146,8 +2148,6 @@ scale_load_to_freq(u64 load, unsigned int src_freq, unsigned int dst_freq)
 	return div64_u64(load * (u64)src_freq, (u64)dst_freq);
 }
 
-#define HEAVY_TASK_SKIP 2
-#define HEAVY_TASK_SKIP_LIMIT 4
 /*
  * get_pred_busy - calculate predicted demand for a task on runqueue
  *
@@ -2175,7 +2175,7 @@ static u32 get_pred_busy(struct rq *rq, struct task_struct *p,
 	u32 *hist = p->ravg.sum_history;
 	u32 dmin, dmax;
 	u64 cur_freq_runtime = 0;
-	int first = NUM_BUSY_BUCKETS, final, skip_to;
+	int first = NUM_BUSY_BUCKETS, final;
 	u32 ret = runtime;
 
 	/* skip prediction for new tasks due to lack of history */
@@ -2195,36 +2195,6 @@ static u32 get_pred_busy(struct rq *rq, struct task_struct *p,
 
 	/* compute the bucket for prediction */
 	final = first;
-	if (first < HEAVY_TASK_SKIP_LIMIT) {
-		/* compute runtime at current CPU frequency */
-		cur_freq_runtime = mult_frac(runtime, max_possible_efficiency,
-					     rq->cluster->efficiency);
-		cur_freq_runtime = scale_load_to_freq(cur_freq_runtime,
-				max_possible_freq, rq->cluster->cur_freq);
-		/*
-		 * if the task runs for majority of the window, try to
-		 * pick higher buckets.
-		 */
-		if (cur_freq_runtime >= sched_major_task_runtime) {
-			int next = NUM_BUSY_BUCKETS;
-			/*
-			 * if there is a higher bucket that's consistently
-			 * hit, don't jump beyond that.
-			 */
-			for (i = start + 1; i <= HEAVY_TASK_SKIP_LIMIT &&
-			     i < NUM_BUSY_BUCKETS; i++) {
-				if (buckets[i] > CONSISTENT_THRES) {
-					next = i;
-					break;
-				}
-			}
-			skip_to = min(next, start + HEAVY_TASK_SKIP);
-			/* don't jump beyond HEAVY_TASK_SKIP_LIMIT */
-			skip_to = min(HEAVY_TASK_SKIP_LIMIT, skip_to);
-			/* don't go below first non-empty bucket, if any */
-			final = max(first, skip_to);
-		}
-	}
 
 	/* determine demand range for the predicted bucket */
 	if (final < 2) {
@@ -4380,7 +4350,8 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 		if (p->sched_class->migrate_task_rq)
 			p->sched_class->migrate_task_rq(p, new_cpu);
 		p->se.nr_migrations++;
-                perf_sw_event_sched(PERF_COUNT_SW_CPU_MIGRATIONS, 1, 0);
+		perf_sw_event_sched(PERF_COUNT_SW_CPU_MIGRATIONS, 1, 0);
+
 		fixup_busy_time(p, new_cpu);
 	}
 
@@ -9374,6 +9345,9 @@ enum s_alloc {
  * Build an iteration mask that can exclude certain CPUs from the upwards
  * domain traversal.
  *
+ * Only CPUs that can arrive at this group should be considered to continue
+ * balancing.
+ *
  * Asymmetric node setups can result in situations where the domain tree is of
  * unequal depth, make sure to skip domains that already cover the entire
  * range.
@@ -9385,18 +9359,31 @@ enum s_alloc {
  */
 static void build_group_mask(struct sched_domain *sd, struct sched_group *sg)
 {
-	const struct cpumask *span = sched_domain_span(sd);
+	const struct cpumask *sg_span = sched_group_cpus(sg);
 	struct sd_data *sdd = sd->private;
 	struct sched_domain *sibling;
 	int i;
 
-	for_each_cpu(i, span) {
+	for_each_cpu(i, sg_span) {
 		sibling = *per_cpu_ptr(sdd->sd, i);
-		if (!cpumask_test_cpu(i, sched_domain_span(sibling)))
+
+		/*
+		 * Can happen in the asymmetric case, where these siblings are
+		 * unused. The mask will not be empty because those CPUs that
+		 * do have the top domain _should_ span the domain.
+		 */
+		if (!sibling->child)
+			continue;
+
+		/* If we would not end up here, we can't continue from here */
+		if (!cpumask_equal(sg_span, sched_domain_span(sibling->child)))
 			continue;
 
 		cpumask_set_cpu(i, sched_group_mask(sg));
 	}
+
+	/* We must not have empty masks here */
+	WARN_ON_ONCE(cpumask_empty(sched_group_mask(sg)));
 }
 
 /*

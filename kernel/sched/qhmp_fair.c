@@ -3056,7 +3056,7 @@ static int best_small_task_cpu(struct task_struct *p, int sync)
 
 	hmp_capable = !cpumask_equal(&mpc_mask, cpu_possible_mask);
 
-	cpumask_and(&search_cpu, tsk_cpus_allowed(p), cpu_online_mask);
+	cpumask_and(&search_cpu, tsk_cpus_allowed(p), cpu_active_mask);
 	if (unlikely(!cpumask_test_cpu(i, &search_cpu))) {
 		i = cpumask_first(&search_cpu);
 		if (i >= nr_cpu_ids)
@@ -3121,7 +3121,7 @@ static int best_small_task_cpu(struct task_struct *p, int sync)
 		return min_cstate_cpu;
 
 	if (!sysctl_sched_restrict_tasks_spread) {
-		cpumask_and(&search_cpu, tsk_cpus_allowed(p), cpu_online_mask);
+		cpumask_and(&search_cpu, tsk_cpus_allowed(p), cpu_active_mask);
 		cpumask_andnot(&search_cpu, &search_cpu, &fb_search_cpu);
 		for_each_cpu(i, &search_cpu) {
 			rq = cpu_rq(i);
@@ -3244,7 +3244,7 @@ static int select_packing_target(struct task_struct *p, int best_cpu)
 	if (rq->max_freq <= rq->mostly_idle_freq)
 		return best_cpu;
 
-	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_online_mask);
+	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_active_mask);
 	cpumask_and(&search_cpus, &search_cpus, &rq->freq_domain_cpumask);
 
 	/* Pick the first lowest power cpu as target */
@@ -3316,7 +3316,7 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 	}
 
 	trq = task_rq(p);
-	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_online_mask);
+	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_active_mask);
 	for_each_cpu(i, &search_cpus) {
 		struct rq *rq = cpu_rq(i);
 
@@ -4030,7 +4030,7 @@ static int lower_power_cpu_available(struct task_struct *p, int cpu)
 	 * This function should be called only when task 'p' fits in the current
 	 * CPU which can be ensured by task_will_fit() prior to this.
 	 */
-	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_online_mask);
+	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_active_mask);
 	cpumask_and(&search_cpus, &search_cpus, &rq->freq_domain_cpumask);
 	cpumask_clear_cpu(lowest_power_cpu, &search_cpus);
 
@@ -4964,6 +4964,19 @@ static void check_spread(struct cfs_rq *cfs_rq, struct sched_entity *se)
 #endif
 }
 
+static unsigned int Lgentle_fair_sleepers = 0;
+static unsigned int Larch_capacity = 1;
+
+void relay_gfs(unsigned int gfs)
+{
+	Lgentle_fair_sleepers = gfs;
+}
+
+void relay_ac(unsigned int ac)
+{
+	Larch_capacity = ac;
+}
+
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 {
@@ -4986,7 +4999,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 		 * Halve their sleep time's effect, to allow
 		 * for a gentler effect of sleepers:
 		 */
-		if (sched_feat(GENTLE_FAIR_SLEEPERS))
+		if (Lgentle_fair_sleepers)
 			thresh >>= 1;
 
 		vruntime -= thresh;
@@ -8144,7 +8157,7 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 	unsigned long capacity = SCHED_CAPACITY_SCALE;
 	struct sched_group *sdg = sd->groups;
 
-	if (sched_feat(ARCH_CAPACITY))
+	if (Larch_capacity)
 		capacity *= arch_scale_cpu_capacity(sd, cpu);
 	else
 		capacity *= default_scale_cpu_capacity(sd, cpu);
@@ -8153,7 +8166,7 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 
 	sdg->sgc->capacity_orig = capacity;
 
-	if (sched_feat(ARCH_CAPACITY))
+	if (Larch_capacity)
 		capacity *= arch_scale_freq_capacity(sd, cpu);
 	else
 		capacity *= default_scale_capacity(sd, cpu);

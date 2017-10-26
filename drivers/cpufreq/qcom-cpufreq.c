@@ -36,6 +36,8 @@ static struct clk *l2_clk;
 static DEFINE_PER_CPU(struct cpufreq_frequency_table *, freq_table);
 static bool hotplug_ready;
 
+static unsigned int max_two_freqs[NR_CPUS][2];
+
 struct cpufreq_suspend_t {
 	struct mutex suspend_mutex;
 	int device_suspended;
@@ -107,6 +109,11 @@ static int msm_cpufreq_target(struct cpufreq_policy *policy,
 
 	ret = set_cpu_freq(policy, table[index].frequency,
 			   table[index].driver_data);
+#ifdef CONFIG_MSM_TRACK_FREQ_TARGET_INDEX
+	if (!ret)
+		policy->cur_index = index;
+#endif
+
 done:
 	mutex_unlock(&per_cpu(suspend_data, policy->cpu).suspend_mutex);
 	return ret;
@@ -168,8 +175,20 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 			policy->cpu, cur_freq, table[index].frequency);
 	policy->cur = table[index].frequency;
 	policy->freq_table = table;
+#ifdef CONFIG_MSM_TRACK_FREQ_TARGET_INDEX
+	policy->cur_index = index;
+#endif
 
 	return 0;
+}
+
+static void set_cpu_freq_pure(unsigned int cpu, unsigned int new_freq)
+{
+	unsigned long rate;
+
+	rate = new_freq * 1000;
+	rate = clk_round_rate(cpu_clk[cpu], rate);
+	clk_set_rate(cpu_clk[cpu], rate);
 }
 
 static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
@@ -219,6 +238,21 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		if (rc) {
 			clk_disable(l2_clk);
 			return NOTIFY_BAD;
+		}
+		/*
+		 * After a CPU comes online, it refuses to change its frequency
+		 * to the frequency it was running at before going offline. The
+		 * CPU runs at its minimum frequency when coming online, so in
+		 * order to prevent the CPU from getting stuck at its minimum
+		 * frequency for a prolonged amount of time, change the CPU's
+		 * frequency twice to two different settings to make it respond
+		 * to frequency changes again. This will make the CPU run at its
+		 * maximum frequency when coming online, until the governor
+		 * kicks in and changes it.
+		 */
+		if (max_two_freqs[cpu][1]) {
+			set_cpu_freq_pure(cpu, max_two_freqs[cpu][0]);
+			set_cpu_freq_pure(cpu, max_two_freqs[cpu][1]);
 		}
 		break;
 
@@ -371,6 +405,9 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 		ftbl[i].driver_data = i;
 		ftbl[i].frequency = f;
 	}
+
+	max_two_freqs[cpu][0] = ftbl[i - 2].frequency;
+	max_two_freqs[cpu][1] = ftbl[i - 1].frequency;
 
 	ftbl[i].driver_data = i;
 	ftbl[i].frequency = CPUFREQ_TABLE_END;

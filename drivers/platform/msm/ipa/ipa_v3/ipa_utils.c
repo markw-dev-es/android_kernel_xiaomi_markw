@@ -38,7 +38,7 @@
 
 #define IPA_TAG_SLEEP_MIN_USEC (1000)
 #define IPA_TAG_SLEEP_MAX_USEC (2000)
-#define IPA_FORCE_CLOSE_TAG_PROCESS_TIMEOUT (10 * HZ)
+#define IPA_FORCE_CLOSE_TAG_PROCESS_TIMEOUT IPA_TIMEOUT(10)
 #define IPA_BCR_REG_VAL (0x00000001)
 #define IPA_AGGR_GRAN_MIN (1)
 #define IPA_AGGR_GRAN_MAX (32)
@@ -1006,6 +1006,11 @@ enum ipacm_client_enum ipa3_get_client(int pipe_idx)
  */
 bool ipa3_get_client_uplink(int pipe_idx)
 {
+	if (pipe_idx < 0 || pipe_idx >= IPA3_MAX_NUM_PIPES) {
+		IPAERR("invalid pipe idx %d\n", pipe_idx);
+		return false;
+	}
+
 	return ipa3_ctx->ipacm_client[pipe_idx].uplink;
 }
 

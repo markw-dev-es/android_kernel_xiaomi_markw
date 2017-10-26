@@ -360,6 +360,10 @@ menuconfig MSM_SCM_XPU
 
 if MSM_SCM_XPU
 
+choice
+	prompt "XPU Violation Behavior"
+	default MSM_XPU_ERR_FATAL
+
 config MSM_XPU_ERR_FATAL
 	bool "Configure XPU violations as fatal errors"
 	help
@@ -369,6 +373,8 @@ config MSM_XPU_ERR_NONFATAL
 	bool "Configure XPU violations as non-fatal errors"
 	help
 	 Select if XPU violations have to be configured as non-fatal errors.
+
+endchoice
 
 endif
 
@@ -471,19 +477,6 @@ config MSM_GLINK_SMEM_NATIVE_XPRT
 	  physical transport.  The nature of shared memory limits this G-Link
 	  transport to only connecting with entities internal to the
 	  System-on-Chip.
-
-config MSM_SPCOM
-	depends on MSM_GLINK
-	bool "Secure Processor Communication over GLINK"
-	help
-	  spcom driver allows loading Secure Processor Applications and
-	  sending messages to Secure Processor Applications.
-	  spcom provides interface to both user space app and kernel driver.
-	  It is using glink as the transport layer, which provides multiple
-	  logical channels over signle physical channel.
-	  The physical layer is based on shared memory and interrupts.
-	  spcom provides clients/server API, although currently only one client
-	  or server is allowed per logical channel.
 
 config MSM_SMEM_LOGGING
 	depends on MSM_SMEM
