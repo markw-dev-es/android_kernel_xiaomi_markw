@@ -34,6 +34,15 @@ FUNC_COMPILE_KERNEL()
 		FUNC_PRINT "Finish Compiling Kernel"
 }
 
+FUNC_CLEAN()
+
+{
+		FUNC_PRINT "Cleaning All"
+		rm -rf $OUT_DIR
+		mkdir $OUT_DIR
+		mkdir -p $BUILDING_DIR
+		mkdir -p $TEMP_DIR
+}
 
 FUNC_PACK()
 {

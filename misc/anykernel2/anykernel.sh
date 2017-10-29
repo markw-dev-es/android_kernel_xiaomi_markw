@@ -3,7 +3,7 @@
 
 ## AnyKernel setup
 # EDIFY properties
-kernel.string=mKernel by msdx321
+kernel.string=velvet_markw by lsdty
 do.devicecheck=0
 do.initd=0
 do.modules=1
