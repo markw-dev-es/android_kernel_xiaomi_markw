@@ -269,12 +269,22 @@ write_boot;
 ## AnyKernel permissions
 # set permissions for included ramdisk files
 chmod -R 755 $ramdisk
+chmod 644 $ramdisk/sbin/media_profiles.xml
 
-## AnyKernel install
-dump_boot;
-# insert init.spectrum.rc in init.rc
-insert_line init.rc "import /init.spectrum.rc" after "import /init.trace.rc" "import /init.spectrum.rc";
+# update default.prop
+patch_prop "default.prop" "ro.debuggable" "0"
+
+ui_print "default.prop patched!"
+
+# init.qcom.rc
+insert_line init.rc "import /init.spectrum.rc" before "import /init.environ.rc" "import /init.spectrum.rc";
+
+ui_print "Spectrum added!"
+
+# end ramdisk changes
+
 write_boot;
 
-## end install
+ui_print "All done!"
 
+## end install
